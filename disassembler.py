@@ -1,6 +1,7 @@
 import sys
 import os
 from binascii import unhexlify
+from cbor2 import loads
 
 def main():
 	"""
@@ -13,12 +14,15 @@ def main():
 		input: str = sys.argv[1]
 		try:
 			with open(os.path.abspath(input), 'r') as file:
-				input = file.read()
+				input = file.read().strip()
 		except FileNotFoundError:
 			pass
 		if input.startswith("0x"):
 			input = input[2:]
+		print(input)
 		bytecode: bytes = unhexlify(input)
+		print(bytecode)
+		bytecode = remove_metadata(bytecode) if (bytecode.find(b'\xa2\x64') != -1) else bytecode
 		pc = 0	
 		disassemble(pc, bytecode, len(bytecode))
 
@@ -31,6 +35,7 @@ def disassemble(pc: int, code: bytes, length: int):
 	:param code: the evm bytecode
 	:param length: the length of the evm bytecode
 	"""
+	store = code
 	code  = iter(code)
 	while pc < length:
 		opcode: bytes = next(code)
@@ -42,13 +47,25 @@ def disassemble(pc: int, code: bytes, length: int):
 			# 1 byte = 8 bits = 2 hex digits
 			for _ in range(operand_size):
 				operand <<= 8 # shift 8 bits left 
-				n = next(code) # grab next byte to create space
+				try:
+					n = next(code) # grab next byte to create space
+				except StopIteration:
+					print(store[-2*operand_size:])
+					break
 				operand |= n # copy it's value into the "empty" space
 			pc += operand_size
-			print(name, hex(operand))
+			print(pc, name, hex(operand))
 		else:
-			print(name)
+			print(length, pc, name)
 
+def remove_metadata(bytecode: bytes) -> bytes:
+	print(bytecode)
+	length_data = bytecode[-2:]
+	# convert hex from base 16 to 10, add 2 bytes to account for '\xa2\x64' signifier
+	metadata_length = int.from_bytes(length_data, "big") + 2 
+	metadata = loads(bytecode[-metadata_length:])
+	return bytecode[:-metadata_length]
+	
 instruction_table: dict[str, int] = {
 	#opcode : (MNEMONIC, OPERAND_SIZE)
 	0x0: ("STOP", 0),       
